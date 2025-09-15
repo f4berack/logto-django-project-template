@@ -1,8 +1,16 @@
 import os
+import hvac
 from django.views import View
 from django.http import HttpResponse, HttpResponseRedirect
 from logto import LogtoClient, LogtoConfig, Storage
 from asgiref.sync import sync_to_async
+
+client = hvac.Client(
+    url='http://127.0.0.1:8200',
+    token='dev-only-token',
+)
+
+logto_secret = client.secrets.kv.read_secret_version(path='logto_secret')
 
 class SessionStorage(Storage):
     def __init__(self, session):
@@ -21,9 +29,9 @@ class SessionStorage(Storage):
 def get_logto_client(session):
     return LogtoClient(
         LogtoConfig(
-            endpoint=os.environ.get("LOGTO_API_ENDPOINT"),
-            appId=os.environ.get("LOGTO_API_CLIENT_ID"),
-            appSecret=os.environ.get("LOGTO_API_SECRET")
+            endpoint=logto_secret['data']['data']['endpoint'],
+            appId=logto_secret['data']['data']['client_id'],
+            appSecret=logto_secret['data']['data']['client_secret']
         ),
         storage=SessionStorage(session),
     )
@@ -32,7 +40,7 @@ def get_logto_client(session):
 class SigninView(View):
     async def get(self, request):
         client = get_logto_client(request.session)
-        redirect_uri = os.environ.get("LOGTO_API_REDIRECT_URI")
+        redirect_uri = logto_secret['data']['data']['redirect_uri']
         sign_in_url = await client.signIn(redirectUri=redirect_uri)
         
         return HttpResponseRedirect(sign_in_url)
@@ -42,7 +50,7 @@ class CallbackView(View):
     async def get(self, request):
         client = get_logto_client(request.session)
         absolute_uri = request.build_absolute_uri()
-        callback_uri = os.environ.get("LOGTO_API_CALLBACK_URI")
+        callback_uri = logto_secret['data']['data']['callback_uri']
         
         try:
             await client.handleSignInCallback(absolute_uri)
